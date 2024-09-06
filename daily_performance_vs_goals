@@ -1,0 +1,71 @@
+with 
+resultados_diarios as (
+    select 
+        event_date as date,
+        count(distinct concat(client_id, ga_session_id)) as sessions,
+        count(distinct(coalesce(client_id, user_id))) as users_visitors
+    from gold.google_analytics4_site_events
+    group by event_date
+), 
+metas_diarias as (
+    select 
+        date as date,
+        sum(sessions) as sessions_meta,
+        sum(users) as users_meta,
+        sum(registered_users) as registered_users_meta
+    from refined.website_daily_goals
+    group by date
+),
+dias_restantes as (
+    select 
+        date,
+        extract(day from (date_trunc('year', date) + interval '1 year') - date) as dias_para_o_fim_do_ano
+    from resultados_diarios
+    group by date
+),
+diff_acumulado as (
+    select 
+        a.date,
+        sum(a.sessions - b.sessions_meta) as diff_sessions,
+        sum(sum(a.sessions - b.sessions_meta)) over (partition by extract(year from a.date) order by a.date) as diff_sessions_acumulado
+    from resultados_diarios a
+    left join metas_diarias b on a.date = b.date
+    group by a.date
+),
+ultimo_valor as (
+    select 
+        d.date,
+        d.diff_sessions_acumulado as ultimo_diff_sessions,
+        c.dias_para_o_fim_do_ano as ultimo_dias_para_o_fim_do_ano
+    from diff_acumulado d
+    left join dias_restantes c on d.date = c.date
+    order by d.date desc
+    limit 1
+),
+distribuicao_proporcional as (
+    select
+        a.date,
+        d.diff_sessions_acumulado,
+        u.ultimo_diff_sessions / nullif(u.ultimo_dias_para_o_fim_do_ano, 0) as valor_proporcional_diario
+    from resultados_diarios a
+    left join diff_acumulado d on a.date = d.date
+    cross join ultimo_valor u
+    where a.date >= (select min(date) from resultados_diarios)
+)
+
+select
+    a.date, 
+    sum(a.sessions) as sessions, 
+    sum(b.sessions_meta) as sessions_meta, 
+    d.diff_sessions, 
+    d.diff_sessions_acumulado,
+    c.dias_para_o_fim_do_ano,
+    dp.valor_proporcional_diario * c.dias_para_o_fim_do_ano as distribuicao_proporcional
+from resultados_diarios a
+full outer join metas_diarias b on a.date = b.date
+left join dias_restantes c on a.date = c.date
+left join diff_acumulado d on a.date = d.date
+left join distribuicao_proporcional dp on a.date = dp.date
+where a.date >= '2024-01-01'
+group by a.date, d.diff_sessions, d.diff_sessions_acumulado, c.dias_para_o_fim_do_ano, dp.valor_proporcional_diario
+order by a.date desc;
