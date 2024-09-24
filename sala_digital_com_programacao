@@ -1,0 +1,29 @@
+select 
+  a2.programa, 
+  a2.data as date,
+  to_timestamp(concat(string(a2.data), " ", a2.hora_inicio, ":00")) as timestamp_inicio,
+  case 
+    when a2.hora_inicio > a2.hora_fim 
+    then to_timestamp(concat(string(date_add(a2.data, 1)), " ", a2.hora_fim, ":00"))
+    else to_timestamp(concat(string(a2.data), " ", a2.hora_fim, ":00"))
+  end as timestamp_fim,
+  coalesce(a1.users, 0) as users 
+from bronze.programacao_webscrap a2
+left join (
+  select 
+    count(distinct client_id) as users, 
+    min(event_timestamp) as timestamp_inicio_evento, 
+    max(event_timestamp) as timestamp_fim_evento,
+    to_date(event_timestamp) as date 
+  from gold.google_analytics4_site_events
+  where event_date >= '2024-08-01'
+    and page_location like '%/ao-vivo%'
+  group by to_date(event_timestamp)
+) a1
+on a1.date = a2.data
+and a1.timestamp_inicio_evento >= to_timestamp(concat(string(a2.data), " ", a2.hora_inicio, ":00"))
+and a1.timestamp_fim_evento < case 
+  when a2.hora_inicio > a2.hora_fim 
+  then to_timestamp(concat(string(date_add(a2.data, 1)), " ", a2.hora_fim, ":00"))
+  else to_timestamp(concat(string(a2.data), " ", a2.hora_fim, ":00"))
+end
