@@ -1,0 +1,21 @@
+select
+    coalesce(b.id_materia, 0) as id_materia,
+    substring(a.clean_page_location from position('/' in a.clean_page_location) for length(a.clean_page_location)) as page_location,
+    count(distinct a.client_id) as users,
+    count(distinct concat(a.client_id, a.ga_session_id)) as sessions,
+    sum(case when a.event_name = 'page_view' then 1 else 0 end) as page_views,
+    sum(case when event_name = 'page_view' then 1 else 0 end) / count(distinct a.client_id) as pageview_per_user
+from gold.google_analytics4_site_events a
+left join (
+    select 
+        clean_page_location, 
+        max(event_params['cmsid']) as id_materia
+    from silver.sat_google_analytics4_site_events
+    group by clean_page_location
+) b
+    on a.clean_page_location = b.clean_page_location
+where 
+    a.event_date >= '2024-08-01'
+    and a.clean_page_location like '%sala-digital%'
+group by 
+    b.id_materia, a.clean_page_location;
